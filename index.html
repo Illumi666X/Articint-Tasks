@@ -172,7 +172,7 @@
                 const response = await fetch(`${WORKER_URL}/api/tasks`);
                 if (response.ok) {
                     const dbTasks = await response.json();
-                    tasks = { todo: [], inprogress: [], done: [] }; // Reset local state
+                    tasks = { todo: [], inprogress: [], done: [] };
                     if (dbTasks && dbTasks.length > 0) {
                         dbTasks.forEach(task => {
                             if (tasks[task.status]) {
@@ -181,15 +181,22 @@
                         });
                         dataLoaded = true;
                     }
+                } else {
+                     console.warn("Failed to fetch from cloud, server responded with an error.");
                 }
             } catch (error) {
                 console.warn("Could not connect to the cloud database. The app will run in local mode.", error);
             }
             
-            if (!dataLoaded && !localStorage.getItem('initialTasksLoaded')) {
-                tasks = getInitialTasks();
-                await saveData();
-                localStorage.setItem('initialTasksLoaded', 'true');
+            if (!dataLoaded) {
+                const localTasks = localStorage.getItem('projectTasksV2');
+                if (localTasks) {
+                    tasks = JSON.parse(localTasks);
+                } else {
+                    tasks = getInitialTasks();
+                    localStorage.setItem('initialTasksLoaded', 'true');
+                    await saveData(); // Save initial tasks to cloud on first load
+                }
             }
 
             const savedProfile = localStorage.getItem('dashboardProfileV2');
@@ -201,6 +208,11 @@
         };
 
         const saveData = async () => {
+            // First, save a snapshot to localStorage for offline resilience
+            localStorage.setItem('projectTasksV2', JSON.stringify(tasks));
+            localStorage.setItem('dashboardProfileV2', JSON.stringify(userProfile));
+
+            // Then, try to save to the cloud
             const allTasksFlat = Object.keys(tasks).flatMap(status => 
                 tasks[status].map(task => ({ ...task, status }))
             );
@@ -217,8 +229,6 @@
             } catch (error) {
                 console.warn("Could not save tasks to the cloud. Progress might not be saved across devices.", error);
             }
-
-            localStorage.setItem('dashboardProfileV2', JSON.stringify(userProfile));
         };
         
         const createTaskElement = (task) => {
