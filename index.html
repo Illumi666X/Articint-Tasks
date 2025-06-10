@@ -137,7 +137,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
         // --- IMPORTANT ---
         // Replace this URL with your actual Cloudflare Worker URL
-        const WORKER_URL = 'https://dashboard-api.houtmc11.workers.dev/';
+        const WORKER_URL = 'https://dashboard-api.houtmc11.workers.dev';
         // --- IMPORTANT ---
 
         const todoTasksContainer = document.getElementById('todo-tasks');
@@ -155,48 +155,43 @@
         let activeTodoTab = 'building';
         const XP_PER_LEVEL = 1000;
 
-        const PHASE_CONFIG = { /* ... config objects ... */ };
-        const PRIORITY_CONFIG = { /* ... config objects ... */ };
-        
-        // Populate config objects
-        Object.assign(PHASE_CONFIG, {
+        const PHASE_CONFIG = {
             building: { color: 'bg-indigo-100 text-indigo-800', name: 'Building' },
             outreach: { color: 'bg-rose-100 text-rose-800', name: 'Outreach' },
             're-evaluating': { color: 'bg-teal-100 text-teal-800', name: 'Re-evaluating' }
-        });
-        Object.assign(PRIORITY_CONFIG, {
+        };
+        const PRIORITY_CONFIG = {
             high: { color: 'text-red-500', name: 'High', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clip-rule="evenodd" /></svg>' },
             medium: { color: 'text-yellow-500', name: 'Medium', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clip-rule="evenodd" /></svg>' },
             low: { color: 'text-green-500', name: 'Low', icon: '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1.293-9.293a1 1 0 00-1.414 0L9 10.586V7a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 000-1.414z" clip-rule="evenodd" /></svg>' }
-        });
-
+        };
 
         const loadData = async () => {
-            // Load tasks from Cloudflare D1 via the Worker
+            let dataLoaded = false;
             try {
                 const response = await fetch(`${WORKER_URL}/api/tasks`);
-                if (!response.ok) throw new Error('Failed to fetch tasks');
-                const dbTasks = await response.json();
-                
-                // Reset local task state
-                tasks = { todo: [], inprogress: [], done: [] };
-                
-                if (dbTasks && dbTasks.length > 0) {
-                    dbTasks.forEach(task => {
-                        tasks[task.status].push(task);
-                    });
-                } else if (!localStorage.getItem('initialTasksLoaded')) {
-                    // First time load, populate with initial tasks
-                    tasks = getInitialTasks();
-                    await saveData();
-                    localStorage.setItem('initialTasksLoaded', 'true');
+                if (response.ok) {
+                    const dbTasks = await response.json();
+                    tasks = { todo: [], inprogress: [], done: [] }; // Reset local state
+                    if (dbTasks && dbTasks.length > 0) {
+                        dbTasks.forEach(task => {
+                            if (tasks[task.status]) {
+                                tasks[task.status].push(task);
+                            }
+                        });
+                        dataLoaded = true;
+                    }
                 }
             } catch (error) {
-                console.error("Error loading tasks:", error);
-                // Optionally handle UI feedback for the user
+                console.warn("Could not connect to the cloud database. The app will run in local mode.", error);
             }
             
-            // Load user profile from localStorage (gamification is local for now)
+            if (!dataLoaded && !localStorage.getItem('initialTasksLoaded')) {
+                tasks = getInitialTasks();
+                await saveData();
+                localStorage.setItem('initialTasksLoaded', 'true');
+            }
+
             const savedProfile = localStorage.getItem('dashboardProfileV2');
             if (savedProfile) {
                 userProfile = JSON.parse(savedProfile);
@@ -206,22 +201,23 @@
         };
 
         const saveData = async () => {
-            // Save tasks to Cloudflare D1 via the Worker
             const allTasksFlat = Object.keys(tasks).flatMap(status => 
                 tasks[status].map(task => ({ ...task, status }))
             );
 
             try {
-                await fetch(`${WORKER_URL}/api/tasks`, {
+                const response = await fetch(`${WORKER_URL}/api/tasks`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(allTasksFlat),
                 });
+                if (!response.ok) {
+                    console.error("Failed to save tasks to the cloud.");
+                }
             } catch (error) {
-                console.error("Error saving tasks:", error);
+                console.warn("Could not save tasks to the cloud. Progress might not be saved across devices.", error);
             }
 
-            // Save user profile to localStorage
             localStorage.setItem('dashboardProfileV2', JSON.stringify(userProfile));
         };
         
